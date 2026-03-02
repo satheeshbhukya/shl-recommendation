@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 from bs4 import BeautifulSoup
-from typing import List
+from typing import List 
+from contextlib import asynccontextmanager
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
@@ -21,19 +22,23 @@ EMBED_MODEL    = "all-MiniLM-L6-v2"
 TOP_K_RETRIEVE = 30  
 TOP_K_RETURN   = 10
 
-print(f"Loading FAISS index from: {INDEX_PATH}")
-print(f"Loading metadata from: {METADATA_PATH}")
+embedder = None
+index = None
+assessments = None
+gemini = None
 
-embedder = SentenceTransformer(EMBED_MODEL)
-index = faiss.read_index(INDEX_PATH)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global embedder, index, assessments, gemini
+    embedder = SentenceTransformer(EMBED_MODEL)
+    index = faiss.read_index(INDEX_PATH)
+    with open(METADATA_PATH, "rb") as f:
+        assessments = pickle.load(f)
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini = genai.GenerativeModel("gemini-2.5-flash")
+    yield
 
-with open(METADATA_PATH, "rb") as f:
-    assessments = pickle.load(f)
-
-genai.configure(api_key=GEMINI_API_KEY)
-gemini = genai.GenerativeModel("gemini-2.5-flash")
-
-app = FastAPI(title="SHL Assessment Recommender", version="1.0.0")
+app = FastAPI(title="SHL Assessment Recommender", version="1.0.0", lifespan=lifespan)
 
 
 app.add_middleware(
